@@ -1,0 +1,95 @@
+---
+title: "Lab 1"
+author: "Olivia Roberts"
+format: html
+embed-resources: true
+fig-width: 5
+fig-height: 4
+theme: "cyborg"
+---
+
+```{r}
+
+library(datasauRus)
+library(ggplot2)
+
+```
+
+**Question 1**
+
+```{r}
+
+?datasaurus_dozen
+
+table(datasaurus_dozen$dataset)
+
+```
+
+Answer: The datasaurus_dozen file contains 1846 rows of 3 variables. The 3 variables are a variable called "dataset" that indicates the dataset the data is from, and x-values variable, and a y-values variable. By accessing the dataset column, we can see a list of the 13 datasets inclued in datasaurus_dozen and that they have 142 rows each.
+
+**Question 2**
+
+```{r}
+
+dino_data <- datasaurus_dozen[datasaurus_dozen$dataset == 'dino',]
+
+ggplot(data = dino_data, mapping = aes(x = x, y = y)) +
+  geom_point()
+
+cor(dino_data$x, dino_data$y)
+
+```
+
+**Question 3**
+
+```{r}
+
+star_data <- datasaurus_dozen[datasaurus_dozen$dataset == 'star',]
+
+ggplot(data = star_data, mapping = aes(x = x, y = y)) +
+  geom_point()
+
+cor(star_data$x, star_data$y)
+
+```
+
+Answer: The correlation coefficient for the dino and star datasets are very similar; they are -0.064 and -0.063 respectively. They are both negative, so in both datasets, as x increases, y decreases. The dino dataset has a slightly stronger negative correlation, but neither of the datasets have a very strong negative correlation since the points are very scattered and the magnitude of the correlation is not very large. Despite having similar correlations, the two datasets look very different.
+
+**Question 4**
+
+```{r}
+
+circle_data <- datasaurus_dozen[datasaurus_dozen$dataset == 'circle',]
+
+ggplot(data = circle_data, mapping = aes(x = x, y = y)) +
+  geom_point()
+
+cor(circle_data$x, circle_data$y)
+
+```
+
+Answer: The correlation coefficient of the dino dataset is -0.064, while the correlation coefficient for the circle dataset is -0.068. Again, both datasets have a negative correlation (as x increases, y decreases overall), but the circle dataset now has a slightly stronger magnitude of correlation. However, both datasets still have a very similar magnitude of correlation despite looking very different.
+
+**Question 5**
+
+```{r}
+#| fig-height: 12
+#| fig-width: 8
+
+ggplot(datasaurus_dozen, aes(x = x, y = y, color = dataset))+
+  geom_point()+
+  facet_wrap(~ dataset, ncol = 3) +
+  theme(legend.position = "none")
+
+```
+
+**Question 6**
+
+```{r}
+
+sapply(unique(datasaurus_dozen$dataset), function(name){
+    subset <- datasaurus_dozen[datasaurus_dozen$dataset == name, ]
+    return(cor(subset$x, subset$y))
+})
+
+```

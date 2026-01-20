@@ -1,0 +1,5 @@
+"0",""
+"0","star_data <- datasaurus_dozen[datasaurus_dozen$dataset == 'star',]"
+"0",""
+"0","ggplot(data = star_data, mapping = aes(x = x, y = y)) +"
+"0","  geom_point()"

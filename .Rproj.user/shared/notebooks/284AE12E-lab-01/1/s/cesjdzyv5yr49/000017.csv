@@ -1,0 +1,5 @@
+"0",""
+"0","circle_data <- datasaurus_dozen[datasaurus_dozen$dataset == 'circle',]"
+"0",""
+"0","ggplot(data = circle_data, mapping = aes(x = x, y = y)) +"
+"0","  geom_point()"

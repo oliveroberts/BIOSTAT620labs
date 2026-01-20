@@ -1,0 +1,218 @@
+library("mefa")
+library("msm")
+library("minqa")
+library("reshape2")
+library("ggplot2")
+library("data.table")
+library("dplyr")
+library("expm")
+library("parallel")
+library("haven")
+library("lubridate")
+
+data=read_sas("C:/Users/olivi/University of Michigan Dropbox/Olivia Roberts/CAsToR-DAD/Olivia-working/Omnibus Study/limited_091625.sas7bdat")
+
+wave_dates <- tibble(
+  wave = 1:14,
+  date = mdy(c(
+    "2/11/2022",  # wave 1
+    "5/7/2022",   # wave 2
+    "8/26/2022",  # wave 3
+    "12/7/2022",  # wave 4
+    "2/25/2023",  # wave 5
+    "5/13/2023",  # wave 6
+    "8/27/2023",  # wave 7
+    "1/4/2024",   # wave 8
+    "4/14/2024",  # wave 9
+    "7/22/2024",  # wave 10
+    "10/27/2024", # wave 11
+    "2/6/2025",   # wave 12
+    "5/7/2025",   # wave 13
+    "8/6/2025"))) # wave 14
+
+wave_dates <- wave_dates %>%
+  mutate(days = as.numeric(date - first(date)))
+
+data <- data %>%
+  left_join(wave_dates, by = "wave")
+
+data_dual <- data %>%
+  filter(!is.na(Q4)) # ever use cigarette (1=yes, 2=no)
+
+data_dual <- data_dual %>%
+  filter(!(Q4 == 1 & is.na(Q5))) # past 30 day use cig (# days smoked in last 30)
+
+data_dual <- data_dual %>%
+  filter(!(Q4 == 1 & is.na(Q7))) # 100 lifetime cigarettes (1=yes, 2=no)
+
+data_dual <- data_dual %>%
+  filter(!is.na(Q39)) # ever use e-cigarette (1=yes, 2=no)
+
+data_dual <- data_dual %>%
+  filter(!(Q39 == 1 & is.na(Q40))) # past 30 day use ENDS (# days smoked in last 30)
+
+# 1 = never use, 2 = non-current use, 3 = cigarette use, 4 = ENVP use, 5 = dual use
+
+# Q4 = ever use cigarette
+# Q5 = days used cigarettes in last 30
+# Q7 = 100+ lifetime cigarettes
+# Q39 = ever use ENVP
+# Q40 = days used ENVP in last 30
+
+data_dual <- data_dual %>%
+  mutate(status = case_when(
+    # 1: NEVER USE
+    Q4 == 2 & Q39 == 2 ~ 1, # never smoked cigarette or ENVP
+    Q4 == 1 & Q7 == 2 & Q39 == 2 ~ 1, # smoked less than 100 cigarettes, never ENVP
+    
+    # 2: NON-CURRENT
+    Q4 == 2 & Q39 == 1 & Q40 == 0 ~ 2, # non-current ENVP, never used cigarette
+    Q4 == 1 & Q5 == 0 & Q7 == 1 & Q39 == 2 ~ 2, # non-current cigarette, never used ENVP
+    Q4 == 1 & Q5 == 0 & Q7 == 1 & Q39 == 1 & Q40 == 0 ~ 2, # non-current cigarette, non-current ENVP
+    Q4 == 1 & Q5 > 0 & Q7 == 2 & Q39 == 1 & Q40 == 0 ~ 2, # not established cigarette, non-current ENVP
+    Q4 == 1 & Q5 == 0 & Q7 == 2 & Q39 == 1 & Q40 == 0 ~ 2, # not established cigarette, non-current ENVP
+    
+    # 3: CIGARETTE ONLY
+    Q4 == 1 & Q5 > 0 & Q7 == 1 & Q39 == 2 ~ 3, # current cigarette, never ENVP
+    Q4 == 1 & Q5 > 0 & Q7 == 1 & Q39 == 1 & Q40 == 0 ~ 3, # current cigarette, non-current ENVP
+    
+    # 4: ENVP ONLY
+    Q4 == 2 & Q39 == 1 & Q40 > 0 ~ 4, # never smoked cigarette
+    Q4 == 1 & Q5 > 0 & Q7 == 2  & Q39 == 1 & Q40 > 0 ~ 4, # smoked cigarette in last 30 days, not established
+    Q4 == 1 & Q5 == 0 & Q7 == 1 & Q39 == 1 & Q40 > 0 ~ 4, # established cigarette user, not in last 30 days
+    Q4 == 1 & Q5 == 0 & Q7 == 2 & Q39 == 1 & Q40 > 0  ~ 4, # have smoked cigarettes before, not established or current
+    
+    # 5: DUAL USE
+    Q4 == 1 & Q5 > 0 & Q7 == 1 & Q39 == 1 & Q40 > 0 ~ 5))   # dual use
+
+filter_transitions <- function(df) {
+  repeat {
+    n_before <- nrow(df)
+    
+    df <- df %>%
+      arrange(fixed_amazonid, days) %>%
+      group_by(fixed_amazonid) %>%
+      mutate(
+        Q4_lag  = lag(Q4),
+        Q39_lag = lag(Q39),
+        Q7_lag  = lag(Q7),
+        
+        bad_Q4  = !is.na(Q4_lag)  & Q4_lag  == 1 & Q4  == 2,
+        bad_Q39 = !is.na(Q39_lag) & Q39_lag == 1 & Q39 == 2,
+        bad_Q7  = !is.na(Q7_lag)  & Q7_lag  == 1 & Q7  == 2
+      ) %>%
+      ungroup() %>%
+      filter(!(bad_Q4 | bad_Q39 | bad_Q7)) %>%
+      select(-ends_with("_lag"), -starts_with("bad_"))
+    
+    if (nrow(df) == n_before) break
+  }
+  df}
+
+data_dual <- filter_transitions(data_dual)
+
+msm_data_subset = function(data, condition){
+  index = which(condition)
+  index_ID = unique(unlist(data[index,"fixed_amazonid"]))
+  index_next = (index + 1)[which((index+1)<=nrow(data))]
+  index1 = index_next[which(unlist(data[index_next,"fixed_amazonid"]) == unlist(data[index[1:length(index_next)],"fixed_amazonid"]))]## This line is fixed
+  temp_data = data[sort(union(index,index1)),]
+  temp_data = temp_data[temp_data$fixed_amazonid %in% temp_data$fixed_amazonid[duplicated(temp_data$fixed_amazonid)==1],]
+  return(temp_data)}
+
+data_dual=data_dual[!is.na(data_dual$status),]
+data_dual = msm_data_subset(data_dual,!is.na(data_dual$status))
+
+#Numbers of transitions between states
+statetable.msm(status,fixed_amazonid,data_dual)
+
+# saveRDS(data_dual,
+#         file = "data_filter_transitions.rds")
+
+data_recoded <- data_dual %>%
+  mutate(status = recode(status,
+                         `1` = "1.Never use",
+                         `2` = "2.Non-current",
+                         `3` = "3.Cigarette-only",
+                         `4` = "4.ENVP-only",
+                         `5` = "5.Dual use"))
+statetable.msm(status,fixed_amazonid,data_recoded)
+
+#Empirical transition probabilities
+prop.table(statetable.msm(status,fixed_amazonid,data_dual),margin=1)
+
+# Q_adj<-rbind(c(0, 1, 1, 1, 1),
+#              c(0, 0, 1, 1, 1),
+#              c(0, 1, 0, 1, 1),
+#              c(0, 1, 1, 0, 1),
+#              c(0, 1, 1, 1, 0)) # <- 17843.44 all transitions (did not optimize)
+
+Q_adj<-rbind(c(0, 1, 1, 1, 1),
+             c(0, 0, 1, 1, 1),
+             c(0, 1, 0, 0, 1),
+             c(0, 1, 0, 0, 1),
+             c(0, 1, 1, 1, 0)) # 17824.48
+
+out = msm(status ~ days,
+          data=data_dual,
+          qmatrix=Q_adj,
+          subject=fixed_amazonid,
+          gen.inits = T,
+          opt.method="bobyqa",
+          control=list(maxfun=50000))
+
+ntrans_base=sum(statetable.msm(status,fixed_amazonid,data_dual))
+log(ntrans_base)*length(out$estimates)+out$minus2loglik
+
+cbind(out$estimates,log(out$ci)) #log hazard rates and confidence intervals for log hazard rates
+
+# All waves transition probability (about 3.5 years)
+pmatrix.msm(out,t=1272,ci="normal")
+
+# 1-year transition probabilities
+pmatrix.msm(out,t=365,ci="normal")
+P = pmatrix.msm(out,t=365,ci="normal")$estimates
+
+P_plot<- 100*P[nrow(P):1, ]
+colnames(P_plot) = c("Never Use","Non-Current","Cigarette-Only","ENVP-only","Dual Use")
+rownames(P_plot) = c("Dual use","ENVP-only","Cigarette-Only","Non-current","Never use")
+y=reshape2::melt(P_plot)
+base_size=18
+
+p1 = ggplot(y,aes(y=Var1,x=Var2))+
+  geom_tile(aes(fill=value)) + scale_fill_gradient2(low="white", mid="darkorange", high="darkred",midpoint=50,limits=c(0,100),guide =guide_colorbar(title="1-year\ncumulative\ntransition \nprobability (%)")) + 
+  xlab("To state") + ylab("From state")+
+  theme(legend.text=element_text(size= base_size), axis.text.x = element_text(size = base_size, angle = 330, hjust=0.1, colour = "grey20",face="bold"), 
+        axis.text.y = element_text(size = base_size, colour = "grey20",face="bold"),
+        axis.title = element_text(size=base_size),
+        axis.line = element_blank(), panel.grid.major = element_blank(),
+        legend.title=element_text(size=base_size),
+        panel.grid.minor = element_blank(),
+        panel.border = element_blank(),
+        panel.background = element_blank())+
+  scale_x_discrete(expand = c(0, 0)) + 
+  scale_y_discrete(expand = c(0, 0))+
+  annotate("text",1,5,label=format(round(P_plot[5,1], 1),nsmall=1),size=8,col="white")+
+  annotate("text",2,5,label=format(round(P_plot[5,2], 1),nsmall=1),size=8)+
+  annotate("text",3,5,label=format(round(P_plot[5,3], 1),nsmall=1),size=8)+
+  annotate("text",4,5,label=format(round(P_plot[5,4], 1),nsmall=1),size=8)+
+  annotate("text",5,5,label=format(round(P_plot[5,5], 1),nsmall=1),size=8)+
+  annotate("text",2,4,label=format(round(P_plot[4,2], 1),nsmall=1),size=8,col="white")+
+  annotate("text",3,4,label=format(round(P_plot[4,3], 1),nsmall=1),size=8)+
+  annotate("text",4,4,label=format(round(P_plot[4,4], 1),nsmall=1),size=8)+
+  annotate("text",5,4,label=format(round(P_plot[4,5], 1),nsmall=1),size=8)+
+  annotate("text",2,3,label=format(round(P_plot[3,2], 1),nsmall=1),size=8)+
+  annotate("text",3,3,label=format(round(P_plot[3,3], 1),nsmall=1),size=8,col="white")+
+  annotate("text",4,3,label=format(round(P_plot[3,4], 1),nsmall=1),size=8)+
+  annotate("text",5,3,label=format(round(P_plot[3,5], 1),nsmall=1),size=8)+
+  annotate("text",2,2,label=format(round(P_plot[2,2], 1),nsmall=1),size=8)+
+  annotate("text",3,2,label=format(round(P_plot[2,3], 1),nsmall=1),size=8)+
+  annotate("text",4,2,label=format(round(P_plot[2,4], 1),nsmall=1),size=8)+
+  annotate("text",5,2,label=format(round(P_plot[2,5], 1),nsmall=1),size=8)+
+  annotate("text",2,1,label=format(round(P_plot[1,2], 1),nsmall=1),size=8)+
+  annotate("text",3,1,label=format(round(P_plot[1,3], 1),nsmall=1),size=8)+
+  annotate("text",4,1,label=format(round(P_plot[1,4], 1),nsmall=1),size=8)+
+  annotate("text",5,1,label=format(round(P_plot[1,5], 1),nsmall=1),size=8)
+print(p1)
+
+# ggsave("filter_transitions.png",plot=p1)
