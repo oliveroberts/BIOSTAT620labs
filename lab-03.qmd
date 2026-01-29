@@ -1,0 +1,175 @@
+---
+title: "Lab 3"
+author: "Olivia Roberts"
+format: html
+embed-resources: true
+fig-width: 5
+fig-height: 4
+theme: "cyborg"
+---
+
+```{r}
+
+library(ggplot2)
+library(leaflet)
+library(lubridate)
+
+```
+
+**Question 1**
+
+```{r}
+
+# Read in the data
+met <- read.csv("met_all.gz")
+
+```
+
+**Question 2**
+
+```{r}
+
+# Check the dimensions, headers, footers
+dim(met)
+
+```
+
+Answer: There are 2377343 rows and 30 columns.
+
+**Question 3**
+
+```{r}
+
+# Variables
+str(met)
+
+```
+
+Answer: Many of the variables are integers, numbers, and characters.
+
+**Question 4**
+
+```{r}
+
+# Key variables
+table(met$year, met$day)
+table(met$hour)
+summary(met$temp)
+summary(met$elev)
+summary(met$wind.sp)
+
+# Replace elevations with 9999.0 as NA
+met$elev[met$elev == 9999.0] <- NA
+# Remove -40C temperature points
+met <- met[met$temp != -40, ]
+# Remove NA temperature points
+met <- met[!is.na(met$temp), ]
+
+```
+
+Answer: There is one year (2019), 31 days, and 24 hours (coded as 0-23). Temp ranges from -40.00 to 56.00, elevation ranges from -13.0 to 9999.0 (which is an indicator for missing), and wind speed ranges from 0.000 to 36.000. When changing 9999.0 to NAs in elevation, the highest weather station is actually at 4113 elevation. After removing the -40C temperature points, the new lowest temperature is -17.2C.
+
+**Question 5**
+
+```{r}
+
+summary(met$elev)
+str(met)
+met[met$temp == -17.2, ]
+met <- met[met$temp != -17.2, ]
+
+met[met$temp == -17, ]
+met <- met[met$temp != -17, ]
+
+met[met$temp == -3, ]
+met[met$temp == 56, ]
+met <- met[met$temp != 56, ]
+summary(met$temp)
+
+```
+
+Answer: The max elevation of 4113.0 meters and the min elevation of -13 meters seem reasonable, since some places are a bit below sea level and the high reading could plausibly be a weather station on top of a mountain range. The -17.2C temperature readings are all from a station in Colorado, and it does not really make sense to get readings that low in Colorado in August at relatively low elevation. There are also -17C temperature readings in August in Texas and Colorado that do not make sense. The highest recorded temperature (56) is in northern California in August and is higher than the highest recorded temperature in that area, so I removed that one too.
+
+**Question 6**
+
+```{r}
+
+# Correlation between temperature and wind speed in station with max elevation
+summary(met$elev)
+elev <- met[met$elev == 4113, ]
+cor(elev$temp, elev$hour, use = "complete.obs")
+cor(elev$wind.sp, elev$hour, use = "complete.obs")
+cor(elev$temp, elev$day, use = "complete.obs")
+cor(elev$wind.sp, elev$day, use = "complete.obs")
+
+```
+Answer: There is a positive correlation between temp and hour and wind speed and day. There is a slight positive correlation between wind speed and hour and a slight negative correlation between temp and day.
+
+**Question 7**
+
+```{r}
+
+hist(met$elev, main="Histogram of Elevations", xlab="Elevation (meters)")
+hist(met$temp, main="Histogram of Temperatures", xlab="Temperature (C)")
+hist(met$wind.sp, main="Histogram of Wind Speed", xlab="Wind Speed (km/hr)")
+
+leaflet(elev) %>%
+  addProviderTiles('OpenStreetMap') %>% 
+  addCircles(lat=~lat,lng=~lon, opacity=1, fillOpacity=1, radius=100)
+
+elev$date <- with(elev, ymd_h(paste(year, month, day, hour, sep= ' ')))
+summary(elev$date)
+elev <- elev[order(elev$date), ]
+head(elev)
+
+plot(elev$date, elev$temp, xlab="Date", ylab="Temperature (C)")
+plot(elev$date, elev$wind.sp, xlab="Date", ylab="Wind Speed (km/h)")
+
+```
+
+Answer: Over the month of August, the temperature ranged from 2 to 14 degrees Celsius. There may be a slight decrease in overall temperatures over the course of the month, but there is not a ton of change. The wind speed varied from zero to a bit over 20 km/h over the month, with a noticeable increase in overall wind speed over the course of the  month.
+
+**Question 8**
+
+```{r}
+
+summary(met$temp)
+met[met$temp == 54.4, ]
+met_hot <- met[met$lat == 34.3, ]
+met_hot <- met[met$lon == -116.166, ]
+
+hist(met$temp, main="Histogram of Temperatures at 34.3 lat, -116.166 lon", xlab="Temperature (C)")
+
+leaflet(met_hot) %>%
+  addProviderTiles('OpenStreetMap') %>% 
+  addCircles(lat=~lat,lng=~lon, opacity=1, fillOpacity=1, radius=100)
+
+met_hot$date <- with(met_hot, ymd_h(paste(year, month, day, hour, sep= ' ')))
+summary(met_hot$date)
+met_hot <- met_hot[order(met_hot$date), ]
+head(met_hot)
+
+summary(met_hot$wind.sp)
+summary(met_hot$temp)
+plot(met_hot$date, met_hot$temp, xlab="Date", ylab="Temperature (C)")
+plot(met_hot$date, met_hot$wind.sp, xlab="Date", ylab="Wind Speed (km/h)")
+
+hourly_means <- tapply(met_hot$temp, met_hot$hour, mean)
+
+plot(met_hot$hour, met_hot$temp,
+     xlab = "Hour of Day",
+     ylab = "Temperature (C)",
+     main = "Temperature vs Hour of Day at Twentynine Palms")
+
+points(as.numeric(names(hourly_means)), hourly_means, col = "red", pch = 19, cex = 1.5)
+lines(as.numeric(names(hourly_means)), hourly_means, col = "red", lwd = 2)
+
+```
+
+Answer: I am curious about the warmest place in my dataset (after filtering out the highest recorded temperature since that did not seem realistic). The warmest recorded temperature is now 54.4 C (130F) at a weather station near Los Angeles, so this heat seems realistic. I want to analyze the temperatures here to answer questions on whether these high temperatures are reasonable and how temperature varies at the station throughout the month and day.
+
+There are 711 observations at this station, which is in the Twentynine Palms Marine Corps Air Ground Combat Center. There is less wind than there was in the station in Colorado - the wind at this station ranges from zero to 11.3 km/hr. Lower wind speeds and the desert environment align with the higher temperatures in this region. The temps range from 20.60C to 54.40C, and there were a couple of days near the end of August into early September that had multiple very hot temperatures recorded. This points to the 54.40C data point being consistent with this heat wave.
+
+Next, I wanted to examine temperatures during different hours of the day to see if these hottest temperatures align with the hottest hours of the day. I created a plot of hour of the day vs. temperature, and created a red line to signify the mean temperature during each hour of the day. Noticeably, the temperatures are lowest around midnight and highest around noon or 1 pm. The outlying high data points from before fall during the hottest parts of the day. Although they are outlying compared to the mean temperatures, they may be reasonable.
+
+A Google search of the hottest temperatures in this region has varying values depending on the station that recorded it. It seems that the hottest recorded temperatures in this region are closer to 110-120F, so 130F might not actually be realistic. However, this data recorded multiple values close to this range around the same days and time of day. Knowing whether these recorded temperatures are actually accurate might require contacting someone with expertise in this area, but if doing an analysis on the full dataset I would leave these values in because they seem realistic with the information I have.
