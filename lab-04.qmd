@@ -1,0 +1,242 @@
+---
+title: "Lab 4"
+author: "Olivia Roberts"
+format: html
+embed-resources: true
+---
+
+```{r}
+
+library(ggplot2)
+library(lubridate)
+library(dplyr)
+library(maps)
+library(gganimate)
+library(tidyverse)
+
+```
+
+**Question 1**
+
+```{r}
+
+# Read in the data
+
+if (!file.exists("covid_processed.csv"))
+  download.file(
+    url = "https://raw.githubusercontent.com/dmcable/BIOSTAT620W26/main/data/covid/covid_processed.csv",
+    destfile = "covid_processed.csv",
+    method   = "libcurl",
+    timeout  = 60)
+
+data <- read.csv("covid_processed.csv",header=TRUE)
+
+```
+
+**Question 2**
+
+```{r}
+
+# Prepare the data
+
+data$cases = (data$cases/data$pop)*100000
+data$hosp = (data$hosp/data$pop)*100000
+data$booster = (data$booster/data$pop)*10000
+data$series = (data$series/data$pop)*100000
+data$deaths = (data$deaths/data$pop)*100000
+data$date = ymd(data$date)
+data$region = as.factor(data$region)
+data$region_name = as.factor(data$region_name)
+state_means <- data |>
+  group_by(state) |>
+  summarise(mean_cases = mean(cases),
+            mean_hosp = mean(hosp),
+            mean_booster = mean(booster),
+            mean_series = mean(series),
+            mean_deaths = mean(deaths),
+            pop = first(pop),
+            region_name = first(region_name),
+            state_name = first(state_name))
+pop_mean = mean(state_means$pop)
+state_means <- state_means |>
+  mutate(pop_above_mean = if_else(pop>pop_mean,1,0))
+# pop_above_mean is 1 if population is above mean
+# pop_above_mean is 0 if population is below mean
+
+```
+
+**Question 3**
+
+```{r}
+
+# Examine case rates and death rates by region
+
+ggplot(state_means, aes(x=1, y=mean_cases,fill=region_name)) +
+  geom_violin() +
+  facet_wrap(~region_name) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+    labs(x = "",
+         y = "Weekly Cases per 100,000",
+         title = "Distribution of Average Weekly Covid Cases by Region")
+
+ggplot(state_means, aes(x=1, y=mean_deaths,fill=region_name)) +
+  geom_violin() +
+  facet_wrap(~region_name) +
+  theme_minimal() +
+  theme(legend.position = "none") +
+    labs(x = "",
+         y = "Weekly Deaths per 100,000",
+         title = "Distribution of Average Weekly Covid Deaths by Region")
+
+```
+Answer: Overall, regions with the most weekly cases tend to have the more deaths. Some regions have less variation in weekly cases, such as the central plains, Midwest, and south central, while other regions have much more variation, such as the pacific northwest, New England, and the New York Islands. Notably, the New York islands have a higher death rate despite less cases, and the mountain regions have lower death rates despite more cases.
+
+**Question 4**
+
+```{r}
+
+# Examine the association between time and case rates by region
+
+data_2weeks <- data |>
+  filter(date >= as.Date("2020-02-08"))
+
+ggplot(data_2weeks, aes(x=date, y=cases, color=region_name)) +
+  geom_point() +
+  stat_smooth(span=0.5) +
+  labs(x = "Date",
+       y = "Weekly Cases per 100,000",
+       title = "Weekly Average Covid Cases by Region from Feb 2020 to Dec 2021",
+       color = "Region")
+
+```
+
+Answer: The default smoothing method is better, because the data is not well represented by a linear line. I went with a span of 0.5 since it seemed to balance fitting the data well without over fitting. During the time period of February 2020 to December 2021, Covid cases peaked in December and January of 2020-2021. They peaked again the following winter, but a bit earlier: closer to October or November of 2021, but near the end of the data there are signs that there might be another increase.
+
+**Question 5**
+
+```{r}
+
+# Create barplots of the states by population category colored by region
+
+state_means <- state_means |>
+  mutate(pop_above_mean = factor(
+    pop_above_mean, levels = c(0, 1),
+    labels = c("Below Mean Population", "Above Mean Population")))
+
+ggplot(state_means, aes(x = pop_above_mean, fill = region_name)) +
+  geom_bar(position = "dodge") +
+  scale_fill_brewer(palette = "Set3") +
+  theme_minimal() +
+  labs(x = "Population Category",
+       y = "Number of States",
+       fill = "Region",
+       title = "States by Population Category and Region")
+
+```
+
+Answer: There are more states below the mean population than above the mean population; this is likely because there are a few states with very high populations that are outliers. Central lanes and mountain states only have populations below the mean population. More Mid-Atlantic, New England, and South Central states have populations below the mean population. Pacific and Southeast states have equal numbers of states below and above the mean. The New York Islands and midwest states have more states above the mean population.
+
+**Question 6**
+
+```{r}
+
+# Examine mean vaccination rate and death rate by region
+ggplot(state_means, aes(x = region_name, y = mean_series, fill = region_name)) +
+  stat_summary(fun.data = "mean_sdl",
+               geom = "pointrange") +
+  stat_summary(fun.data = "mean_sdl",
+               geom = "errorbar") +
+  labs(x = "Region",
+       y = "Vaccination Rate per 100,000",
+       title = "Mean Covid Vaccination Rates by Region") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+ggplot(state_means, aes(x = region_name, y = mean_deaths, fill = region_name)) +
+  stat_summary(fun.data = "mean_sdl",
+               geom = "pointrange") +
+  stat_summary(fun.data = "mean_sdl",
+               geom = "errorbar") +
+  labs(x = "Region",
+       y = "Death Rate per 100,000",
+       title = "Mean Covid Death Rates by Region") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+Answer: Overall, regions with higher vaccination rates seem to have lower death rates. Some states with the highest mean vaccination rates include the mid-Atlantic, New England, and New York Islands, while the Southeast, South Central, and Mountain States have lower vaccination rates. South Central and Southeast have the highest Covid death rates, while New England and Pacific Northwest have the lowest.
+
+**Question 7**
+
+```{r}
+
+# Spatial trend of COVID deaths in the US
+
+us_map <- map_data("state")
+
+state_means$state_name <- tolower(state_means$state_name)
+
+map_df <- us_map %>% left_join(state_means, by = c("region" = "state_name"))
+
+top10_states <- state_means %>%
+  arrange(desc(mean_deaths)) %>%
+  slice(1:10)
+
+label_df <- map_df %>%
+  filter(region %in% top10_states$state_name) %>%
+  group_by(region) %>%
+  summarise(long = mean(long),
+            lat = mean(lat),
+            mean_deaths = first(mean_deaths),
+            .groups = "drop")
+
+ggplot(map_df, aes(x = long, y = lat, group = group)) +
+  geom_polygon(aes(fill = mean_deaths), color = "white", linewidth = 0.2) +
+  coord_fixed(1.3) +
+  scale_fill_gradientn(colors = c("#f7fbff", "#c6dbef", "#6baed6", "#2171b5", "#08306b"),
+                       name = "Mean Death Rate per 100,000") +
+  geom_text(data = label_df,
+            mapping = aes(x = long, y = lat, label = "*"),
+            inherit.aes = FALSE, color = "black", size = 5) +
+  labs(title = "Covid Death Rate by State in the US",
+       subtitle = "* Top 10 states with highest death rates") +
+  theme_void() + theme(legend.position = "right", plot.title = element_text(face = "bold"))
+
+
+```
+
+Answer: Overall, southern states have higher Covid death rates. Many of the states with the highest Covid death rates are in the South, such as Mississippi, Alabama, and Tennessee. Some Southwest states, including New Mexico and Arizona, have high death rates as well, and some east states. No midwest or pacific southwest states are in the highest death rate regions.
+
+**Question 8**
+
+```{r}
+
+# Use ggplot extension
+
+data_sd <- data_2weeks |>
+  filter(state_name == "South Dakota") |>
+  select(date, cases, deaths)
+
+data_sd_long <- data_sd |>
+  pivot_longer(cols = c(cases, deaths),
+               names_to = "type",
+               values_to = "rate")
+
+ggplot(data_sd_long,
+       aes(x = date, y = rate, color = type)) +
+  geom_line(linewidth = 1.2) +
+  scale_color_manual(values = c("cases" = "blue",
+                                "deaths" = "red"),
+    labels = c("Cases per 100,000", "Deaths per 100,000")) +
+  labs(title = "Covid Cases and Death Rates in South Dakota",
+       subtitle = "Week: {frame_along}",
+       x = "Date",
+       y = "Rate per 100,000 population",
+       color = "") +
+  theme_minimal(base_size = 14) +
+  transition_reveal(date)
+
+```
+
+Answer: I animated the rate per 100,000 of Covid cases and deaths in South Dakota. There was a huge spike in cases per 100,000 in December of 2020, and smaller spikes from October 2021 to January of 2022.
