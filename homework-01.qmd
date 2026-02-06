@@ -1,0 +1,257 @@
+---
+title: "Homework 1"
+author: "Olivia Roberts"
+format: html
+embed-resources: true
+---
+
+```{r}
+
+library(ggplot2)
+library(lubridate)
+library(dplyr)
+library(maps)
+library(tidyverse)
+
+```
+
+**Step 1**
+
+```{r}
+
+# Read in the data
+
+data2005 <- read.csv("C:/Users/olivi/OneDrive - Umich/My Vault/4 - Winter 2026/BIOSTAT 620/ad_viz_plotval_data_2005.csv")
+data2025 <- read.csv("C:/Users/olivi/OneDrive - Umich/My Vault/4 - Winter 2026/BIOSTAT 620/ad_viz_plotval_data_2025.csv")
+
+dim(data2005)
+colnames(data2005)
+hist(data2005$Daily.Mean.PM2.5.Concentration,xlab="Daily Mean PM2.5 Concentration (µg/m³)",
+    main="Daily Mean PM2.5 Concentration in 2005")
+summary(data2005$Daily.Mean.PM2.5.Concentration)
+dim(data2025)
+colnames(data2025)
+hist(data2025$Daily.Mean.PM2.5.Concentration,xlab="Daily Mean PM2.5 Concentration (µg/m³)",
+    main="Daily Mean PM2.5 Concentration in 2025")
+summary(data2025$Daily.Mean.PM2.5.Concentration)
+
+```
+
+Answer: The 2005 dataset has 5,280 observations of 22 variables, and the 2025 dataset has 9,934 observations of 22 variables. The names of the 22 variables in both datasets are the same; the entire list is listed above. The most important data includes the date data was collected (as a character in xx/xx/xxxx format), the ID of each site in Michigan (integer), the site name (character), the daily mean PM2.5 concentration (number), air quality index value (integer), and the county the data was collected in (character). From the histograms, in both 2005 and 2025, the daily mean PM2.5 concentration variable is far left skewed, but 2025 has higher outlying values: the highest values of PM2.5 concentration are 81.6 ug/m3 in 2005 and 116.0 ug/m3 in 2025. The mean PM2.5 concentrations in 2005 have a median value of 11 and a mean of 13.77, while the mean PM2.5 concentrations in 2025 have a median value of 6.3 and a mean of 8.304. Even though 2025 had more outlying PM2.5 concentrations, 2005 has both a higher mean and median of concentrations.
+
+**Step 2**
+
+```{r}
+
+data2005$Year <- year(mdy(data2005$Date))
+data2025$Year <- year(mdy(data2025$Date))
+
+data <- rbind(data2005, data2025)
+
+data <- data |>
+  rename(
+    PM25 = Daily.Mean.PM2.5.Concentration,
+    AQI = Daily.AQI.Value,
+    Site = Local.Site.Name,
+    Observations = Daily.Obs.Count,
+    Latitude = Site.Latitude,
+    Longitude = Site.Longitude)
+
+names(data)
+
+```
+Answer: 
+
+**Step 3**
+
+```{r}
+
+mi_map <- map_data("state") |> filter(region == "michigan")
+
+ggplot() +
+  geom_polygon(
+    data = mi_map, 
+    aes(x = long, y = lat, group = group),
+    fill = "lightgray", color = "black") +
+  geom_point(data = data,
+             aes(x = Longitude, y = Latitude, color = factor(Year)),
+             size = 2, alpha = 0.7) +
+  coord_fixed(1.3) +
+  labs(title = "Spatial Distribution of PM2.5 Monitoring Sites in Michigan",
+       color = "Year") +
+  theme_minimal() + 
+  theme(axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank())
+
+```
+
+Answer: The spatial distribution of the sites changed a greatly from 2005 to 2025. There were few sites that were in the same exact location as before. There were 30 sites in 2005 and 27 sites in 2025. The sites in the Detroit area in 2005 were more closely-packed, while in 2025 there was a wider spread in area of Detroit-area sites. There is one point at the top that appears to be outlying, but is actually located in Isle Royale, which is in Michigan.
+
+**Step 4**
+
+```{r}
+
+data <- data |> filter(!is.na(PM25))
+hist(data$PM25,xlab="Daily Mean PM2.5 Concentration (µg/m³)",
+    main="Daily Mean PM2.5 Concentration in 2005 and 2025")
+
+data |> filter(PM25 == 116)
+
+table(data$Method.Code, useNA = "always")
+
+data <- data %>%
+  mutate(Method.Code = as.character(Method.Code),
+         Method.Code = replace_na(Method.Code, "Missing"))
+
+data |> group_by(Year, Method.Code) |>
+  summarise(n = n(), .groups = "drop") |>
+  group_by(Year) |>
+  mutate(proportion = n / sum(n))
+
+```
+
+Answer: The highest PM 2.5 concentrations are 116.0 and 100.6 ug/m3 in Marquette, MI. This seems unlikely at first glance. However, according to Google, daily levels can exceed 100 ug/m3 when there are wildfires in the area (or in Canada). Marquette is in the right area where a reading like that would make sense. There are a couple higher readings in the Detroit area, but these make sense because Detroit is a larger city and sometimes smog due to pollution can raise the PM 2.5 concentration. Also, according to Google, 1-hour maximum PM 2.5 readings can range from 0 to 200 ug/m3, so none of the values in this data set seem unrealistic. 
+
+The most common method codes used are 118 and 636. 118 is a R&P Model 2025 PM 2.5 SEQUNTL collection device that makes intermittent gravimetric recordings. This model collects particles on a filter intermittently and the filter is weighed before and after. 636 is a Teledyne T640 at 5.0 LPM w/Network Data Alignment enabled that makes continuous recordings using Broadband spectroscopy. This model shines light on air particles and analyzes how light interacts with it continuously. 
+
+The years 2005 and 2025 used differing methods to measure PM 2.5 concentrations. Method 707 is the only common method between the two years, with methods 118, 781, and 810 used in 2005 exclusively, and methods 145, 170, 636, and 638 used in 2005 exclusively. Most notably, every single missing method code is in the year 2025, and this makes up over a quarter of the data points for 2025. From looking at the data, it appears that these missing method codes are mostly in Wayne County. These temporal patterns are important because the method used to measure concentrations could affect the consistency of the measured concentrations themselves. It is also concerning that there are so many missing method codes in 2025, because without knowing the method used, it is difficult to discern whether the concentration measurements are consistent across years.
+
+**Step 5: Entire State**
+
+```{r}
+
+data$Year <- as.factor(data$Year)
+
+ggplot(data, aes(x = Year, y = PM25, fill = Year)) +
+  geom_boxplot() +
+  labs(title = "PM2.5 Concentrations in 2005 and 2025",
+       x = "Year",
+       y = "PM2.5 (µg/m³)") +
+  theme_minimal() +
+  scale_fill_manual(values = c("lightblue", "lightgreen"))
+
+data |>
+  group_by(Year) |> 
+  summarize(Count = n(),
+    "Mean" = mean(PM25, na.rm = TRUE),
+    "Median" = median(PM25, na.rm = TRUE),
+    "SD" = sd(PM25, na.rm = TRUE),
+    "Minimum" = min(PM25, na.rm = TRUE),
+    "Q1" = quantile(PM25, 0.25, na.rm = TRUE),
+    "Q2" = quantile(PM25, 0.75, na.rm = TRUE),
+    "Maximum" = max(PM25, na.rm = TRUE))
+
+
+```
+
+Answer: For looking at the entire state cumulatively, I made boxplots and a table of descriptive statistics to best compare the two years. The box plots and summary statistics show that the overall concentrations of PM2.5 are lower, on average, in 2025 than they were in 2005. The mean PM2.5 concentrations in 2005 have a median value of 11 µg/m³ and a mean of 13.77 µg/m³, while the mean PM2.5 concentrations in 2025 have a median value of 6.3 µg/m³ and a mean of 8.304 µg/m³. The median and mean were both lower in 2025, which answers the research question. However, 2025 has more spread: the minimum and maximums are zero and 116.0 µg/m³, respectively, while for 2005 the minimum and maximums are zero and 81.6 µg/m³, respectively. 
+
+**Step 5: Every County in Michigan**
+
+```{r}
+
+mi_counties <- map_data("county") |> filter(region == "michigan")
+
+data_county <- data |>
+  group_by(Year, County) |>
+  summarize(mean_PM25 = mean(PM25, na.rm = TRUE)) |> ungroup()
+
+data_county <- data_county |>
+  mutate(County = tolower(County))
+
+data_county_2005 <- data_county |> filter(Year=="2005")
+data_county_2025 <- data_county |> filter(Year=="2025")
+
+data_county_2005 <- mi_counties |>
+  left_join(data_county_2005, by = c("subregion" = "County"))
+data_county_2025 <- mi_counties |>
+  left_join(data_county_2025, by = c("subregion" = "County"))
+
+ggplot(data_county_2005, aes(x = long, y = lat, group = group, fill = mean_PM25)) +
+  geom_polygon(color = "black") +
+  coord_fixed(1.3) +
+  scale_fill_viridis_c(option = "plasma", name = "Mean PM2.5 (µg/m³)") +
+  labs(title = "Mean PM2.5 by County in 2005") +
+  theme_minimal() + 
+  theme(axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank())
+
+ggplot(data_county_2025, aes(x = long, y = lat, group = group, fill = mean_PM25)) +
+  geom_polygon(color = "black") +
+  coord_fixed(1.3) +
+  scale_fill_viridis_c(option = "plasma", name = "Mean PM2.5 (µg/m³)") +
+  labs(title = "Mean PM2.5 by County in 2025") +
+  theme_minimal() + 
+  theme(axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank())
+
+data_county |>
+  filter(Year == 2005) |>
+  group_by(County) |>
+  summarize(`Mean PM2.5 (µg/m³)` = mean_PM25) |>
+  arrange(desc(`Mean PM2.5 (µg/m³)`))
+
+data_county |>
+  filter(Year == 2025) |>
+  group_by(County) |>
+  summarize(`Mean PM2.5 (µg/m³)` = mean_PM25) |>
+  arrange(desc(`Mean PM2.5 (µg/m³)`))
+
+```
+
+Answer: For comparing counties, I made a heat map of counties by mean PM 2.5 concentration in 2005 and 2025, respectively. I also made a table of the mean PM 2.5 concentrations in each county from highest to lowest in in 2005 and 2025, respectively. There are a lot of counties that do not have reported values, but of those that reported, in 2005, the highest average PM 2.5 concentrations were found near the Detroit area, Grand Rapids, and Saginaw, while lower concentrations were found in northern Michigan and in the upper peninsula. Detroit area counties including Wayne, Monroe, Oakland, and Washtenaw had the highest PM 2.5 concentrations: over 15 µg/m³. In 2025, Grand Rapids and Detroit area had the highest concentrations, followed by parts of the upper peninsula. The highest average PM 2.5 concentrations by county were never above 10 µg/m³, and the counties with the highest concentrations included Kent, Kalamazoo, Wayne, and Allegan counties. When comparing by county, the concentrations of PM 2.5 are lower overall in 2025 compared to 2005.
+
+**Step 5: Every Site in Wayne County**
+
+```{r}
+
+wayne_map <- mi_counties |> filter(subregion == "wayne")
+
+data_wayne_2005 <- data |>
+  filter(County == "Wayne") |>
+  filter(Year == "2005") |>
+  group_by(Site.ID, Site, Latitude, Longitude) |>
+  summarize(mean_PM25 = mean(PM25, na.rm = TRUE)) |> ungroup()
+
+data_wayne_2025 <- data |>
+  filter(County == "Wayne") |>
+  filter(Year == "2025") |>
+  group_by(Site.ID, Site, Latitude, Longitude) |>
+  summarize(mean_PM25 = mean(PM25, na.rm = TRUE)) |> ungroup()
+
+data_wayne <- bind_rows(
+  data_wayne_2005 %>% mutate(Year = "2005"),
+  data_wayne_2025 %>% mutate(Year = "2025"))
+
+ggplot() +
+  geom_polygon(data = wayne_map, aes(x = long, y = lat, group = group),
+               fill = "lightgrey", color = "black") +
+  geom_point(data = data_wayne, 
+             aes(x = Longitude, y = Latitude, color=Year, size = mean_PM25)) +
+  coord_fixed(1.3) +
+  scale_color_manual(values = c("steelblue", "orange")) +
+  labs(title = "Mean PM2.5 Concentration at Sites in Wayne County in 2005 and 2025",
+       x = "", y = "", color = "Year", size = "Mean PM2.5") +
+  theme_minimal() +
+  theme(axis.title = element_blank(),
+        axis.text = element_blank(),
+        axis.ticks = element_blank())
+
+data_wayne |>
+  filter(Year == 2005) |>
+  group_by(Site) |>
+  summarize(`Mean PM2.5 (µg/m³)` = mean_PM25) |>
+  arrange(desc(`Mean PM2.5 (µg/m³)`))
+
+data_wayne |>
+  filter(Year == 2025) |>
+  group_by(Site) |>
+  summarize(`Mean PM2.5 (µg/m³)` = mean_PM25) |>
+  arrange(desc(`Mean PM2.5 (µg/m³)`))
+
+```
+
+Answer: To look at the sites in Wayne county, I made a map of the sites with the mean concentrations for both 2005 and 2025, where a larger size of point represents a larger PM 2.5 concentration. I also made a table of the mean concentrations at each site in descending order. In 2005, there were consistently higher average concentrations of PM 2.5 in Wayne county; as high as almost 20 µg/m³ at some sites, with the highest concentration at an unnamed site. The lowest concentration was a bit under 15 µg/m³. In 2025, the average concentrations were much smaller than they were in 2005. The highest concentration was under 12 µg/m³ for all sites and the lowest was above 7 µg/m³. Overall, Wayne county shows lower mean concentrations of PM 2.5 in 2025 compared to 2005. 
